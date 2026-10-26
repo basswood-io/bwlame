@@ -815,7 +815,7 @@ PutLameVBR(lame_global_flags const *gfp, size_t nMusicLength, uint8_t * pbtStrea
     CreateI2(&pbtStreamBuffer[nBytesWritten], cfg->preset);
     nBytesWritten += 2;
 
-    CreateI4(&pbtStreamBuffer[nBytesWritten], (int) nMusicLength);
+    CreateI4(&pbtStreamBuffer[nBytesWritten], (uint32_t) nMusicLength);
     nBytesWritten += 4;
 
     CreateI2(&pbtStreamBuffer[nBytesWritten], nMusicCRC);
@@ -872,7 +872,7 @@ lame_get_lametag_frame(lame_global_flags const *gfp, unsigned char *buffer, size
 {
     lame_internal_flags *gfc;
     SessionConfig_t const *cfg;
-    unsigned long stream_size;
+    uint32_t stream_size;
     unsigned int  nStreamIndex;
     uint8_t btToc[NUMTOCENTRIES];
 
@@ -954,8 +954,12 @@ lame_get_lametag_frame(lame_global_flags const *gfp, unsigned char *buffer, size
     CreateI4(&buffer[nStreamIndex], gfc->VBR_seek_table.nVbrNumFrames);
     nStreamIndex += 4;
 
-    /* Put total audio stream size, including Xing/LAME Header */
-    stream_size = gfc->VBR_seek_table.nBytesWritten + gfc->VBR_seek_table.TotalFrameSize;
+    /* Put total audio stream size, including Xing/LAME Header. The field has
+       32 bits: a stream of 4 GiB or more gets its largest value. */
+    {
+        uint64_t const bytes = gfc->VBR_seek_table.nBytesWritten + gfc->VBR_seek_table.TotalFrameSize;
+        stream_size = bytes < 0xFFFFFFFFu ? (uint32_t) bytes : 0xFFFFFFFFu;
+    }
     CreateI4(&buffer[nStreamIndex], stream_size);
     nStreamIndex += 4;
 

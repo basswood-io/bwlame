@@ -896,7 +896,12 @@ inc_subblock_gain(const lame_internal_flags * const gfc, gr_info * const cod_inf
 
             scalefac[sfb] = 0;
             {
-                int const gain = 210 + (s << (cod_info->scalefac_scale + 1));
+                /* s is negative here (the s >= 0 case continued above), so the
+                   original s << (scalefac_scale + 1) was a shift of a negative
+                   value. The intent is s * 2^(scalefac_scale + 1); expressing it
+                   as a multiply by a power of two is defined and value-identical
+                   (the small negative s cannot overflow). */
+                int const gain = 210 + s * (1 << (cod_info->scalefac_scale + 1));
                 amp = IPOW20(gain);
             }
             j += width * (window + 1);
@@ -1137,7 +1142,7 @@ outer_loop(lame_internal_flags * gfc, gr_info * const cod_info, const FLOAT * co
 
             /* save data so we can restore this quantization later */
             if (better) {
-                best_part2_3_length = cod_info->part2_3_length;
+                best_part2_3_length = cod_info_w.part2_3_length;
                 best_noise_info = noise_info;
                 *cod_info = cod_info_w;
                 age = 0;
@@ -1747,7 +1752,7 @@ VBR_new_iteration_loop(lame_internal_flags * gfc, const FLOAT pe[2][2],
         /* SHOULD NOT HAPPEN INTERNAL ERROR
          */
         ERRORF(gfc, "INTERNAL ERROR IN VBR NEW CODE, please send bug report\n");
-        exit(-1);
+        gfc->sv_enc.internal_error = 1;
     }
 }
 

@@ -109,3 +109,25 @@ tightening code that modern compilers warn about.
   shortcut has been removed.
 - Updated to LAME 4.0, including the fixed `compiletime_assert` macro and a
   compile-time check that the LAME tag version fits its 9-byte field.
+- Hardened the AIFF header reader: chunk sizes are checked before they are
+  used, so a malformed or truncated file is rejected instead of making the
+  reader spin.
+- Backported fixes from LAME 4.1 development (unreleased):
+  - Floating point input that is NaN or infinite, or any input louder than
+    4096 times full scale, is refused with `LAME_BADINPUTDATA` instead of
+    tripping an assertion that aborts the calling process.
+  - Internal quantization errors return `LAME_INTERNALERROR` to the caller
+    instead of calling `exit()`.
+  - Amplified noise shaping is off for CBR and ABR, where it lowered quality,
+    and the outer quantization loop records the bit count of the candidate it
+    accepts. CBR and ABR output changes; VBR output does not.
+  - Fixed an out-of-bounds read in the short-block quantizer, frame headers
+    lost after long silence at the lowest MPEG-2 bitrates, and undefined
+    signed shifts in the bitstream writer, CRC, quantizer, and input reader.
+  - ID3v2 tags too large for their size field are no longer written corrupt,
+    short comment languages are padded instead of over-read, and frame
+    identifiers shorter than four characters are refused.
+  - The LAME tag gives a stream of 4 GiB or more the largest size its field
+    holds instead of a wrapped value.
+  - The command line refuses over-long file names and passes only valid
+    values to the character class functions.

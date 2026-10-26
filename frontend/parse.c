@@ -1098,8 +1098,8 @@ local_strcasecmp(const char *s1, const char *s2)
     unsigned char c2;
 
     do {
-        c1 = (unsigned char) tolower(*s1);
-        c2 = (unsigned char) tolower(*s2);
+        c1 = (unsigned char) tolower((unsigned char) *s1);
+        c2 = (unsigned char) tolower((unsigned char) *s2);
         if (!c1) {
             break;
         }
@@ -1120,8 +1120,8 @@ local_strncasecmp(const char *s1, const char *s2, int n)
         if (cnt == n) {
             break;
         }
-        c1 = (unsigned char) tolower(*s1);
-        c2 = (unsigned char) tolower(*s2);
+        c1 = (unsigned char) tolower((unsigned char) *s1);
+        c2 = (unsigned char) tolower((unsigned char) *s2);
         if (!c1) {
             break;
         }
@@ -1470,6 +1470,35 @@ static int dev_only_without_arg(char const* str, char const* token, int* argIgno
 
 #define T_ELIF_INTERNAL_WITH_ARG(str) \
                            } else if (dev_only_with_arg(str,token,nextArg,&argIgnored,&argUsed)) {
+
+
+/**
+ * Copy a positional input/output filename argument into a fixed PATH_MAX+1
+ * byte buffer, always null-terminating the result.
+ *
+ * A source of PATH_MAX bytes or longer is rejected rather than copied, so the
+ * destination is never left unterminated for a later unbounded string scan.
+ *
+ * @param src  NUL-terminated source filename.
+ * @param dst  destination buffer of at least PATH_MAX+1 bytes; on success it
+ *             holds a null-terminated copy of @p src, on failure it is left
+ *             unchanged.
+ * @return 0 on success, or -1 if @p src is PATH_MAX bytes or longer (an error
+ *         naming the offending file is printed).
+ */
+static int
+set_path_arg(char const *const src, char *const dst)
+{
+    int const arg_n = strnlen(src, PATH_MAX);
+    if (arg_n >= PATH_MAX) {
+        error_printf("input/output file name too long (limit %d): %s\n",
+                     PATH_MAX, src);
+        return -1;
+    }
+    strncpy(dst, src, PATH_MAX);
+    dst[PATH_MAX] = '\0';
+    return 0;
+}
 
 
 static int
@@ -2361,7 +2390,9 @@ parse_args_(lame_global_flags * gfp, int argc, char **argv,
         else {
             if (nogap) {
                 if ((num_nogap != NULL) && (count_nogap < *num_nogap)) {
-                    strncpy(nogap_inPath[count_nogap++], argv[i], PATH_MAX + 1);
+                    if (set_path_arg(argv[i], nogap_inPath[count_nogap]) < 0)
+                        return -1;
+                    ++count_nogap;
                     input_file = 1;
                 }
                 else {
@@ -2377,12 +2408,15 @@ parse_args_(lame_global_flags * gfp, int argc, char **argv,
                 /* normal options:   inputfile  [outputfile], and
                    either one can be a '-' for stdin/stdout */
                 if (inPath[0] == '\0') {
-                    strncpy(inPath, argv[i], PATH_MAX + 1);
+                    if (set_path_arg(argv[i], inPath) < 0)
+                        return -1;
                     input_file = 1;
                 }
                 else {
-                    if (outPath[0] == '\0')
-                        strncpy(outPath, argv[i], PATH_MAX + 1);
+                    if (outPath[0] == '\0') {
+                        if (set_path_arg(argv[i], outPath) < 0)
+                            return -1;
+                    }
                     else {
                         error_printf("%s: excess arg %s\n", ProgramName, argv[i]);
                         return -1;
@@ -2475,7 +2509,7 @@ string_to_argv(char* str, char** argv, int N)
     argv[argc++] = "lhama";
     for (;;) {
         int     quoted = 0;
-        while (isspace(*str)) { /* skip blanks */
+        while (isspace((unsigned char) *str)) { /* skip blanks */
             ++str;
         }
         if (*str == '\"') { /* is quoted argument ? */
@@ -2498,7 +2532,7 @@ string_to_argv(char* str, char** argv, int N)
                 }
             }
             else {
-                if (isspace(*str)) { /* parameter separator reached */
+                if (isspace((unsigned char) *str)) { /* parameter separator reached */
                     *str++ = '\0';
                     break;
                 }

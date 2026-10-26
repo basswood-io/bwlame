@@ -157,10 +157,15 @@ typedef enum MiscIDs { ID_TXXX = FRAME_ID('T', 'X', 'X', 'X')
 static int
 frame_id_matches(int id, int mask)
 {
-    int     result = 0, i, window = 0xff;
+    /* window is a byte mask that walks up to 0xff000000; keep it unsigned so
+       reaching and shifting past the top byte is a defined wrap rather than a
+       signed overflow / shift of a negative value. The masks are bit patterns,
+       so the results are unchanged. */
+    int     result = 0, i;
+    unsigned int window = 0xff;
     for (i = 0; i < 4; ++i, window <<= 8) {
-        int const mw = (mask & window);
-        int const iw = (id & window);
+        int const mw = (int) (mask & window);
+        int const iw = (int) (id & window);
         if (mw != 0 && mw != iw) {
             result |= iw;
         }
@@ -696,6 +701,9 @@ toID3v2TagId(char const *s)
             }
         }
     }
+    if (i < 4) {
+        return 0;
+    }
     return x;
 }
 
@@ -720,6 +728,9 @@ toID3v2TagId_ucs2(unsigned short const *s)
         }
         x <<= 8;
         x |= c;
+    }
+    if (i < 4) {
+        return 0;
     }
     return x;
 }
@@ -810,13 +821,28 @@ setLang(char *dst, char const *src)
         dst[2] = 'g';
     }
     else {
-        for (i = 0; i < 3 && src && *src; ++i) {
+        for (i = 0; i < 3 && src[i] != 0; ++i) {
             dst[i] = src[i];
         }
         for (; i < 3; ++i) {
             dst[i] = ' ';
         }
     }
+}
+
+/*  The <ctype.h> functions are defined for the values of an unsigned char and
+    for EOF only.
+ */
+static char
+toLowerChar(char c)
+{
+    return (char) tolower((unsigned char) c);
+}
+
+static char
+toUpperChar(char c)
+{
+    return (char) toupper((unsigned char) c);
 }
 
 static int
@@ -826,8 +852,8 @@ isSameLang(char const *l1, char const *l2)
     int     i;
     setLang(d, l2);
     for (i = 0; i < 3; ++i) {
-        char    a = tolower(l1[i]);
-        char    b = tolower(d[i]);
+        char    a = toLowerChar(l1[i]);
+        char    b = toLowerChar(d[i]);
         if (a < ' ')
             a = ' ';
         if (b < ' ')
@@ -1228,8 +1254,8 @@ local_strcasecmp(const char *s1, const char *s2)
     unsigned char c1;
     unsigned char c2;
     do {
-        c1 = tolower(*s1);
-        c2 = tolower(*s2);
+        c1 = (unsigned char) toLowerChar(*s1);
+        c2 = (unsigned char) toLowerChar(*s2);
         if (!c1) {
             break;
         }
@@ -1244,7 +1270,7 @@ static
 const char* nextUpperAlpha(const char* p, char x)
 {
     char c;
-    for(c = toupper(*p); *p != 0; c = toupper(*++p)) {
+    for (c = toUpperChar(*p); *p != 0; c = toUpperChar(*++p)) {
         if ('A' <= c && c <= 'Z') {
             if (c != x) {
                 return p;
@@ -1261,8 +1287,8 @@ sloppyCompared(const char* p, const char* q)
     char cp, cq;
     p = nextUpperAlpha(p, 0);
     q = nextUpperAlpha(q, 0);
-    cp = toupper(*p);
-    cq = toupper(*q);
+    cp = toUpperChar(*p);
+    cq = toUpperChar(*q);
     while (cp == cq) {
         if (cp == 0) {
             return 1;
@@ -1273,8 +1299,8 @@ sloppyCompared(const char* p, const char* q)
         }
         p = nextUpperAlpha(p, cp);
         q = nextUpperAlpha(q, cq);
-        cp = toupper(*p);
-        cq = toupper(*q);
+        cp = toUpperChar(*p);
+        cq = toUpperChar(*q);
     }
     return 0;
 }
@@ -1739,6 +1765,15 @@ lame_get_id3v2_tag(lame_t gfp, unsigned char *buffer, size_t size)
             if (test_tag_spec_flags(gfc, PAD_V2_FLAG)) {
                 /* add some bytes of padding */
                 tag_size += gfc->tag_spec.padding_size;
+            }
+            /* The tag length goes into a 28-bit synchsafe field. A tag larger
+             * than that cannot state its own size, so the four length bytes
+             * would wrap and describe a shorter tag than was written, leaving
+             * the frames after it unparseable. Produce no tag rather than a
+             * corrupt one.
+             */
+            if (tag_size - 10 > 0x0FFFFFFFuL) {
+                return 0;
             }
             if (size < tag_size) {
                 return tag_size;
