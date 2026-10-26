@@ -1,6 +1,6 @@
-# LAMER
+# bwlame
 
-LAMER is a cleaned-up source tree for the LAME MP3 encoder. It builds the
+bwlame is a cleaned-up source tree for the LAME MP3 encoder. It builds the
 `lame` command line encoder and `libmp3lame` library with a direct maintained
 Makefile.
 
@@ -78,7 +78,7 @@ checked-in reference `testcase.mp3`.
 
 ## License
 
-LAMER is licensed under `LGPL-2.1-or-later`. See `LICENSE` for the full license
+bwlame is licensed under `LGPL-2.1-or-later`. See `LICENSE` for the full license
 text.
 
 ## Changes from the Original Source
