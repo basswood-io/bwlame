@@ -235,8 +235,8 @@ typedef void SNDFILE;
 
 
 typedef struct blockAlign_struct {
-    unsigned long offset;
-    unsigned long blockSize;
+    uint32_t offset;
+    uint32_t blockSize;
 } blockAlign;
 
 typedef struct IFF_AIFF_struct {
@@ -244,7 +244,7 @@ typedef struct IFF_AIFF_struct {
     unsigned long numSampleFrames;
     short   sampleSize;
     double  sampleRate;
-    unsigned long sampleType;
+    uint32_t sampleType;
     blockAlign blkAlgn;
 } IFF_AIFF;
 
@@ -485,6 +485,21 @@ fskip(FILE * fp, long offset, int whence)
     }
 
     return 0;
+}
+
+
+static int
+fskip_uint32(FILE * fp, uint32_t offset)
+{
+    int     ret = 0;
+    while (offset > INT_MAX && ret == 0) {
+        offset -= INT_MAX;
+        ret = fskip(fp, INT_MAX, SEEK_CUR);
+    }
+    if (offset > 0 && ret == 0) {
+        ret = fskip(fp, (long) offset, SEEK_CUR);
+    }
+    return ret;
 }
 
 
@@ -1477,7 +1492,7 @@ parse_wave_header(lame_global_flags * gfp, FILE * sf)
 static int
 aiff_check2(IFF_AIFF * const pcm_aiff_data)
 {
-    if (pcm_aiff_data->sampleType != (unsigned long) IFF_ID_SSND) {
+    if (pcm_aiff_data->sampleType != (uint32_t) IFF_ID_SSND) {
         if (global_ui_config.silent < 10) {
             error_printf("ERROR: input sound data is not PCM\n");
         }
@@ -1529,7 +1544,7 @@ aiff_check2(IFF_AIFF * const pcm_aiff_data)
 static int
 parse_aiff_header(lame_global_flags * gfp, FILE * sf)
 {
-    long    chunkSize = 0, subSize = 0, typeID = 0, dataType = IFF_ID_NONE;
+    uint32_t chunkSize = 0, typeID = 0, dataType = IFF_ID_NONE;
     IFF_AIFF aiff_info;
     int     seen_comm_chunk = 0, seen_ssnd_chunk = 0;
     long    pcm_data_pos = -1;
@@ -1538,54 +1553,62 @@ parse_aiff_header(lame_global_flags * gfp, FILE * sf)
     chunkSize = read_32_bits_high_low(sf);
 
     typeID = read_32_bits_high_low(sf);
+    if (chunkSize < 4)          /* malformed FORM size: guard the -= 4 underflow */
+        return -1;
+    chunkSize -= 4;
     if ((typeID != IFF_ID_AIFF) && (typeID != IFF_ID_AIFC))
         return -1;
 
-    while (chunkSize > 0) {
-        long    ckSize;
-        int     type = read_32_bits_high_low(sf);
+    while (chunkSize >= 8) {
+        uint32_t ckSize;
+        uint32_t type = read_32_bits_high_low(sf);
+        if (feof(sf))           /* FORM size claims more data than the file has */
+            return -1;
         chunkSize -= 4;
 
         /* DEBUGF(
            "found chunk type %08x '%4.4s'\n", type, (char*)&type); */
 
+        ckSize = read_32_bits_high_low(sf);
+        chunkSize -= 4;
+        ckSize += ckSize & 0x01;
+        if (chunkSize < ckSize)
+            return -1;
+        chunkSize -= ckSize;
+
         /* don't use a switch here to make it easier to use 'break' for SSND */
         if (type == IFF_ID_COMM) {
+            if (ckSize < 18)
+                return -1;
             seen_comm_chunk = seen_ssnd_chunk + 1;
-            subSize = read_32_bits_high_low(sf);
-            ckSize = make_even_number_of_bytes_in_length(subSize);
-            chunkSize -= ckSize;
 
             aiff_info.numChannels = (short) read_16_bits_high_low(sf);
-            ckSize -= 2;
             aiff_info.numSampleFrames = read_32_bits_high_low(sf);
-            ckSize -= 4;
             aiff_info.sampleSize = (short) read_16_bits_high_low(sf);
-            ckSize -= 2;
             aiff_info.sampleRate = read_ieee_extended_high_low(sf);
-            ckSize -= 10;
+            ckSize -= 18;
             if (typeID == IFF_ID_AIFC) {
+                if (ckSize < 4)
+                    return -1;
                 dataType = read_32_bits_high_low(sf);
                 ckSize -= 4;
             }
-            if (fskip(sf, ckSize, SEEK_CUR) != 0)
+            if (fskip_uint32(sf, ckSize) != 0)
                 return -1;
         }
         else if (type == IFF_ID_SSND) {
+            if (ckSize < 8)
+                return -1;
             seen_ssnd_chunk = 1;
-            subSize = read_32_bits_high_low(sf);
-            ckSize = make_even_number_of_bytes_in_length(subSize);
-            chunkSize -= ckSize;
 
             aiff_info.blkAlgn.offset = read_32_bits_high_low(sf);
-            ckSize -= 4;
             aiff_info.blkAlgn.blockSize = read_32_bits_high_low(sf);
-            ckSize -= 4;
+            ckSize -= 8;
 
             aiff_info.sampleType = IFF_ID_SSND;
 
             if (seen_comm_chunk > 0) {
-                if (fskip(sf, (long) aiff_info.blkAlgn.offset, SEEK_CUR) != 0)
+                if (fskip_uint32(sf, aiff_info.blkAlgn.offset) != 0)
                     return -1;
                 /* We've found the audio data. Read no further! */
                 break;
@@ -1594,15 +1617,11 @@ parse_aiff_header(lame_global_flags * gfp, FILE * sf)
             if (pcm_data_pos >= 0) {
                 pcm_data_pos += aiff_info.blkAlgn.offset;
             }
-            if (fskip(sf, ckSize, SEEK_CUR) != 0)
+            if (fskip_uint32(sf, ckSize) != 0)
                 return -1;
         }
         else {
-            subSize = read_32_bits_high_low(sf);
-            ckSize = make_even_number_of_bytes_in_length(subSize);
-            chunkSize -= ckSize;
-
-            if (fskip(sf, ckSize, SEEK_CUR) != 0)
+            if (fskip_uint32(sf, ckSize) != 0)
                 return -1;
         }
     }
