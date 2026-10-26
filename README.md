@@ -107,3 +107,5 @@ tightening code that modern compilers warn about.
   target-bit accounting, corrected SIMD quantization bounds, faster CRCs, and
   terminal-width-aware progress output. The obsolete Takehiro IEEE754
   shortcut has been removed.
+- Updated to LAME 4.0, including the fixed `compiletime_assert` macro and a
+  compile-time check that the LAME tag version fits its 9-byte field.
